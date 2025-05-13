@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ticktrack"
+description = "Monitoring of realtime data presence in passenger information systems"
+authors = [{ name = "Sebastian Knopf", email = "mail@sebastian-knopf.de" }]
+readme = "README.md"
+license = {text = "Apache License (2.0)"}
+dependencies = [
+    "click",
+    "lxml",
+    "pytz",
+    "pyyaml",
+    "sqlobject"
+]
+requires-python = ">=3.10"
+
+dynamic = ["version"]
+
+[tool.setuptools_scm]
+write_to = "src/ticktrack/version.py"
