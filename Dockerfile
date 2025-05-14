@@ -17,4 +17,5 @@ RUN rm -rf .git
 RUN rm -rf .github
 
 # ready - run the stop monitor
-ENTRYPOINT ["sh", "-c", "python ticktrack observe /app/data/data.db3 /app/config/config.yaml"]
+ENTRYPOINT ["python"]
+CMD ["-m", "ticktrack", "observe", "/app/data/data.db3", "/app/config/config.yaml"]
