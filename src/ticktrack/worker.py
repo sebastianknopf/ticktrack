@@ -125,7 +125,10 @@ class MonitorWorker:
 
                         # update realtime metrics if there's something special
                         realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
-                        if realtime_cancelled != monitored_trip.realtime_cancelled or realtime_num_cancelled_stops != monitored_trip.realtime_num_cancelled_stops or realtime_num_added_stops != monitored_trip.realtime_num_added_stops:
+                        if realtime_cancelled > monitored_trip.realtime_cancelled \
+                            or realtime_num_cancelled_stops > monitored_trip.realtime_num_cancelled_stops \
+                            or realtime_num_added_stops > monitored_trip.realtime_num_added_stops:
+
                             monitored_trip.realtime_cancelled = realtime_cancelled
                             monitored_trip.realtime_num_cancelled_stops = realtime_num_cancelled_stops
                             monitored_trip.realtime_num_added_stops = realtime_num_added_stops           
