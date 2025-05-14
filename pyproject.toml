@@ -20,5 +20,8 @@ requires-python = ">=3.10"
 
 dynamic = ["version"]
 
+[project.scripts]
+ticktrack = "ticktrack.__main__:cli"
+
 [tool.setuptools_scm]
 write_to = "src/ticktrack/version.py"
