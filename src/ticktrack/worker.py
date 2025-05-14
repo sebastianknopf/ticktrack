@@ -1,7 +1,6 @@
 import datetime
 import logging
 import requests
-import threading
 
 from typing import List
 
@@ -21,12 +20,13 @@ class MonitorWorker:
         self._endpoint = endpoint
         self._key = key
         self._datalog = datalog
-        self._lock = threading.Lock()
+
+        self.next_departure_timestamp = None
 
     def start(self, station_id: str, line_ids: List[str]|None = None) -> None:
-        self._run(station_id, line_ids)
+        self.next_departure_timestamp = self._run(station_id, line_ids)
 
-    def _run(self, station_id: str, line_ids: List[str]|None = None) -> None:
+    def _run(self, station_id: str, line_ids: List[str]|None = None) -> datetime.datetime|None:
         
         # send request
         request = StopEventRequest(self._key, station_id, self._current_iso_timestamp())
@@ -45,98 +45,118 @@ class MonitorWorker:
                 if line_ids is not None and len(line_ids) > 0:
                     if not any([line_id.startswith(id) for id in line_ids]):
                         continue
-                
-                with self._lock:
 
-                    # identify monitored trip instance
-                    monitored_trip = MonitoredTrip.select((MonitoredTrip.q.operation_day == operation_day) & (MonitoredTrip.q.trip_id == trip_id)).getOne(default=None)
-                    if monitored_trip is None:
-                        
-                        # gather all data to generate a new monitored trip instance for this operation day
-                        line_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.PublishedLineName.Text')
-                        origin_stop_id = triasxml_get_value(stop_event_result, 'StopEvent.Service.OriginStopPointRef')
-                        origin_stop_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.OriginText.Text')
-                        destination_stop_id = triasxml_get_value(stop_event_result, 'StopEvent.Service.DestinationStopPointRef')
-                        destination_stop_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.DestinationText.Text')
+                # identify monitored trip instance
+                monitored_trip = MonitoredTrip.select((MonitoredTrip.q.operation_day == operation_day) & (MonitoredTrip.q.trip_id == trip_id)).getOne(default=None)
+                if monitored_trip is None:
+                    
+                    # gather all data to generate a new monitored trip instance for this operation day
+                    line_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.PublishedLineName.Text')
+                    origin_stop_id = triasxml_get_value(stop_event_result, 'StopEvent.Service.OriginStopPointRef')
+                    origin_stop_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.OriginText.Text')
+                    destination_stop_id = triasxml_get_value(stop_event_result, 'StopEvent.Service.DestinationStopPointRef')
+                    destination_stop_name = triasxml_get_value(stop_event_result, 'StopEvent.Service.DestinationText.Text')
 
-                        if triasxml_exists(stop_event_result, 'StopEvent.PreviousCall'):
-                            first_call = stop_event_result.StopEvent.PreviousCall[0]
+                    if triasxml_exists(stop_event_result, 'StopEvent.PreviousCall'):
+                        first_call = stop_event_result.StopEvent.PreviousCall[0]
 
-                            start_time = triasxml_get_value(first_call, 'CallAtStop.ServiceDeparture.TimetabledTime')
-                            start_time = start_time.replace('Z', '+00:00')
-                        elif triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
-                            this_call = stop_event_result.StopEvent.ThisCall
+                        start_time = triasxml_get_value(first_call, 'CallAtStop.ServiceDeparture.TimetabledTime')
+                        start_time = start_time.replace('Z', '+00:00')
+                    elif triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
+                        this_call = stop_event_result.StopEvent.ThisCall
 
-                            start_time = triasxml_get_value(this_call, 'CallAtStop.ServiceDeparture.TimetabledTime')
-                            start_time = start_time.replace('Z', '+00:00')
-                        else:
-                            start_time = ""
+                        start_time = triasxml_get_value(this_call, 'CallAtStop.ServiceDeparture.TimetabledTime')
+                        start_time = start_time.replace('Z', '+00:00')
+                    else:
+                        start_time = ""
 
-                        if triasxml_exists(stop_event_result, 'StopEvent.OnwardCall'):
-                            last_call = stop_event_result.StopEvent.OnwardCall[-1]
+                    if triasxml_exists(stop_event_result, 'StopEvent.OnwardCall'):
+                        last_call = stop_event_result.StopEvent.OnwardCall[-1]
 
-                            end_time = triasxml_get_value(last_call, 'CallAtStop.ServiceArrival.TimetabledTime')
-                            end_time = end_time.replace('Z', '+00:00')
-                        elif triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
-                            this_call = stop_event_result.StopEvent.ThisCall
+                        end_time = triasxml_get_value(last_call, 'CallAtStop.ServiceArrival.TimetabledTime')
+                        end_time = end_time.replace('Z', '+00:00')
+                    elif triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
+                        this_call = stop_event_result.StopEvent.ThisCall
 
-                            end_time = triasxml_get_value(this_call, 'CallAtStop.ServiceArrival.TimetabledTime')
-                            end_time = start_time.replace('Z', '+00:00')
-                        else:
-                            end_time = ""
+                        end_time = triasxml_get_value(this_call, 'CallAtStop.ServiceArrival.TimetabledTime')
+                        end_time = start_time.replace('Z', '+00:00')
+                    else:
+                        end_time = ""
 
+                    # check realtime existence
+                    realtime_ref_station = station_id
+
+                    if triasxml_exists(stop_event_result, 'StopEvent.ThisCall.CallAtStop.ServiceDeparture.EstimatedTime'):
+                        realtime_first_appeared = self._current_iso_timestamp()
+                    else:
+                        realtime_first_appeared = None
+
+                    realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
+                    
+                    # create monitored trip object
+                    MonitoredTrip(
+                        operation_day=operation_day,
+                        trip_id=trip_id,
+                        line_id=line_id,
+                        line_name=line_name,
+                        origin_stop_id=origin_stop_id,
+                        origin_name=origin_stop_name,
+                        destination_stop_id=destination_stop_id,
+                        destination_name=destination_stop_name,
+                        start_time=start_time,
+                        end_time=end_time,
+                        realtime_ref_station=realtime_ref_station,
+                        realtime_first_appeared=realtime_first_appeared,
+                        realtime_cancelled=realtime_cancelled,
+                        realtime_num_cancelled_stops=realtime_num_cancelled_stops,
+                        realtime_num_added_stops=realtime_num_added_stops
+                    )
+                    
+                else:
+
+                    # only update the trip if there's no realtime available yet
+                    if monitored_trip.realtime_first_appeared == None:
                         # check realtime existence
-                        realtime_ref_station = station_id
-
                         if triasxml_exists(stop_event_result, 'StopEvent.ThisCall.CallAtStop.ServiceDeparture.EstimatedTime'):
                             realtime_first_appeared = self._current_iso_timestamp()
-                        else:
-                            realtime_first_appeared = None
+                            monitored_trip.realtime_first_appeared = realtime_first_appeared
 
-                        realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
-                        
-                        # create monitored trip object
-                        MonitoredTrip(
-                            operation_day=operation_day,
-                            trip_id=trip_id,
-                            line_id=line_id,
-                            line_name=line_name,
-                            origin_stop_id=origin_stop_id,
-                            origin_name=origin_stop_name,
-                            destination_stop_id=destination_stop_id,
-                            destination_name=destination_stop_name,
-                            start_time=start_time,
-                            end_time=end_time,
-                            realtime_ref_station=realtime_ref_station,
-                            realtime_first_appeared=realtime_first_appeared,
-                            realtime_cancelled=realtime_cancelled,
-                            realtime_num_cancelled_stops=realtime_num_cancelled_stops,
-                            realtime_num_added_stops=realtime_num_added_stops
-                        )
-                        
-                    else:
+                    # update realtime metrics if there's something special
+                    realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
+                    if realtime_cancelled > monitored_trip.realtime_cancelled \
+                        or realtime_num_cancelled_stops > monitored_trip.realtime_num_cancelled_stops \
+                        or realtime_num_added_stops > monitored_trip.realtime_num_added_stops:
 
-                        # only update the trip if there's no realtime available yet
-                        if monitored_trip.realtime_first_appeared == None:
-                            # check realtime existence
-                            if triasxml_exists(stop_event_result, 'StopEvent.ThisCall.CallAtStop.ServiceDeparture.EstimatedTime'):
-                                realtime_first_appeared = self._current_iso_timestamp()
-                                monitored_trip.realtime_first_appeared = realtime_first_appeared
+                        monitored_trip.realtime_cancelled = realtime_cancelled
+                        monitored_trip.realtime_num_cancelled_stops = realtime_num_cancelled_stops
+                        monitored_trip.realtime_num_added_stops = realtime_num_added_stops           
 
-                        # update realtime metrics if there's something special
-                        realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
-                        if realtime_cancelled > monitored_trip.realtime_cancelled \
-                            or realtime_num_cancelled_stops > monitored_trip.realtime_num_cancelled_stops \
-                            or realtime_num_added_stops > monitored_trip.realtime_num_added_stops:
+            # return first departure time found
+            first_stop_event_result = response.Trias.ServiceDelivery.DeliveryPayload.StopEventResponse.StopEventResult[0]
+            if triasxml_exists(first_stop_event_result, 'StopEvent.ThisCall'):
+                this_call = first_stop_event_result.StopEvent.ThisCall
 
-                            monitored_trip.realtime_cancelled = realtime_cancelled
-                            monitored_trip.realtime_num_cancelled_stops = realtime_num_cancelled_stops
-                            monitored_trip.realtime_num_added_stops = realtime_num_added_stops           
+                if triasxml_exists(this_call, 'CallAtStop.ServiceDeparture'):
+                    next_departure_timestamp = triasxml_get_value(this_call, 'CallAtStop.ServiceDeparture.TimetabledTime')
+                    next_departure_timestamp = next_departure_timestamp.replace('Z', '+00:00')
+
+                    return datetime.datetime.fromisoformat(next_departure_timestamp)
+                elif triasxml_exists(this_call, 'CallAtStop.ServiceArrival'):
+                    next_departure_timestamp = triasxml_get_value(this_call, 'CallAtStop.ServiceArrival.TimetabledTime')
+                    next_departure_timestamp = next_departure_timestamp.replace('Z', '+00:00')
+
+                    return datetime.datetime.fromisoformat(next_departure_timestamp)
+                else:
+                    return None
+            else:
+                return None
+        else:
+            return None
 
     def _current_iso_timestamp(self) -> str:
         return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
     
-    def _get_realtime_metrics(self, stop_event_result) -> str:
+    def _get_realtime_metrics(self, stop_event_result: object) -> str:
         realtime_cancelled = 0
         realtime_num_cancelled_stops = 0
         realtime_num_added_stops = 0
@@ -153,10 +173,10 @@ class MonitorWorker:
                     realtime_num_added_stops = realtime_num_added_stops + 1
 
         if triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
-            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.NotServicedStop') and call.CallAtStop.NotServicedStop:
+            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.NotServicedStop') and stop_event_result.StopEvent.ThisCall.CallAtStop.NotServicedStop:
                 realtime_num_cancelled_stops = realtime_num_cancelled_stops + 1
 
-            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.UnplannedStop') and call.CallAtStop.UnplannedStop:
+            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.UnplannedStop') and stop_event_result.StopEvent.ThisCall.CallAtStop.UnplannedStop:
                 realtime_num_added_stops = realtime_num_added_stops + 1
 
         if triasxml_exists(stop_event_result, 'StopEvent.OnwardCall'):
@@ -196,6 +216,6 @@ class MonitorWorker:
 
             return response
         except Exception as ex:
-            logging.exception(ex)
+            logging.error(ex)
 
             return None

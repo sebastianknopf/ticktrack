@@ -51,7 +51,7 @@ class StopEventRequest(ServiceRequest):
         self.Trias.ServiceRequest.RequestPayload.StopEventRequest.DepArrTime = dep_arr_time
 
         self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params = Element('Params')
-        self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params.NumberOfResults = str(40)
+        self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params.NumberOfResults = str(20)
         self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params.StopEventType = 'departure'
         self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params.IncludeRealtimeData = str(True).lower()
         self.Trias.ServiceRequest.RequestPayload.StopEventRequest.Params.IncludePreviousCalls = str(True).lower()
