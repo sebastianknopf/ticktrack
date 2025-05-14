@@ -93,6 +93,8 @@ class MonitorWorker:
                         else:
                             realtime_first_appeared = None
 
+                        realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
+                        
                         # create monitored trip object
                         MonitoredTrip(
                             operation_day=operation_day,
@@ -106,7 +108,10 @@ class MonitorWorker:
                             start_time=start_time,
                             end_time=end_time,
                             realtime_ref_station=realtime_ref_station,
-                            realtime_first_appeared=realtime_first_appeared
+                            realtime_first_appeared=realtime_first_appeared,
+                            realtime_cancelled=realtime_cancelled,
+                            realtime_num_cancelled_stops=realtime_num_cancelled_stops,
+                            realtime_num_added_stops=realtime_num_added_stops
                         )
                         
                     else:
@@ -118,8 +123,48 @@ class MonitorWorker:
                                 realtime_first_appeared = self._current_iso_timestamp()
                                 monitored_trip.realtime_first_appeared = realtime_first_appeared
 
+                        # update realtime metrics if there's something special
+                        realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops = self._get_realtime_metrics(stop_event_result)
+                        if realtime_cancelled != monitored_trip.realtime_cancelled or realtime_num_cancelled_stops != monitored_trip.realtime_num_cancelled_stops or realtime_num_added_stops != monitored_trip.realtime_num_added_stops:
+                            monitored_trip.realtime_cancelled = realtime_cancelled
+                            monitored_trip.realtime_num_cancelled_stops = realtime_num_cancelled_stops
+                            monitored_trip.realtime_num_added_stops = realtime_num_added_stops           
+
     def _current_iso_timestamp(self) -> str:
         return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+    
+    def _get_realtime_metrics(self, stop_event_result) -> str:
+        realtime_cancelled = 0
+        realtime_num_cancelled_stops = 0
+        realtime_num_added_stops = 0
+        
+        if triasxml_exists(stop_event_result, 'StopEvent.Service.Cancelled') and stop_event_result.StopEvent.Service.Cancelled:
+            realtime_cancelled = 1
+        
+        if triasxml_exists(stop_event_result, 'StopEvent.PreviousCall'):
+            for call in stop_event_result.StopEvent.PreviousCall:
+                if triasxml_exists(call, 'CallAtStop.NotServicedStop') and call.CallAtStop.NotServicedStop:
+                    realtime_num_cancelled_stops = realtime_num_cancelled_stops + 1
+
+                if triasxml_exists(call, 'CallAtStop.UnplannedStop') and call.CallAtStop.UnplannedStop:
+                    realtime_num_added_stops = realtime_num_added_stops + 1
+
+        if triasxml_exists(stop_event_result, 'StopEvent.ThisCall'):
+            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.NotServicedStop') and call.CallAtStop.NotServicedStop:
+                realtime_num_cancelled_stops = realtime_num_cancelled_stops + 1
+
+            if triasxml_exists(stop_event_result.StopEvent.ThisCall, 'CallAtStop.UnplannedStop') and call.CallAtStop.UnplannedStop:
+                realtime_num_added_stops = realtime_num_added_stops + 1
+
+        if triasxml_exists(stop_event_result, 'StopEvent.OnwardCall'):
+            for call in stop_event_result.StopEvent.OnwardCall:
+                if triasxml_exists(call, 'CallAtStop.NotServicedStop') and call.CallAtStop.NotServicedStop:
+                    realtime_num_cancelled_stops = realtime_num_cancelled_stops + 1
+
+                if triasxml_exists(call, 'CallAtStop.UnplannedStop') and call.CallAtStop.UnplannedStop:
+                    realtime_num_added_stops = realtime_num_added_stops + 1
+
+        return (realtime_cancelled, realtime_num_cancelled_stops, realtime_num_added_stops)
     
     def _request(self, request: TriasRequest) -> TriasResponse:
         headers = {

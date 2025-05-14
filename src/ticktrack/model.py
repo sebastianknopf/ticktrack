@@ -13,3 +13,6 @@ class MonitoredTrip(SQLObject):
     end_time = StringCol()
     realtime_ref_station = StringCol()
     realtime_first_appeared = StringCol(default=None)
+    realtime_cancelled = IntCol(default=0)
+    realtime_num_cancelled_stops = IntCol(default=0)
+    realtime_num_added_stops = IntCol(default=0)
