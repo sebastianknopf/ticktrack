@@ -7,6 +7,7 @@ Ticktrack is a simple tool to monitor departures and the availability of realtim
 - Which lines have a good or less realtime coverage?
 - Are there some trips which have no realtime data available for several days?
 - How is the realtime coverage over some lines in the past 5 days?
+- Are there cancelled trips or single cancelled or added stops?
 
 To collect the data, the ticktrack client performs StopEventRequests periodically for each configured station ID and adds an entry for each unique trip per operation day. 
 
