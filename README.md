@@ -14,7 +14,7 @@ Everythin results in a table with the following structure:
 
 | Column                  | Type   | Description                | Comment
 |-------------------------|------------|------------------------------|---|
-| id                      | INTEGER    | Primärschlüssel, AutoID     |    |
+| id                      | INTEGER    | Primary Key, AutoID     |    |
 | operation_day           | TEXT       | Operation Day (YYYY-MM-DD)  ||
 | trip_id                 | TEXT       | Trip-ID                     ||
 | line_id                 | TEXT       | Line-ID                     ||
@@ -27,6 +27,9 @@ Everythin results in a table with the following structure:
 | end_time                | TEXT       | Nominal End Timestamp (ISO8601) ||
 | realtime_ref_station    | TEXT       | Reference Station ID | station ID where the trip has been seen the first time |
 | realtime_first_appeared | TEXT       | First Realtime Timestamp (ISO8601) |timestamp when the trip had realtime information the first time | 
+| realtime_cancelled | INTEGER | Realtime Cancellation Flag | indicates whether the complete trip was cancelled for at least one time |
+| realtime_num_cancelled_stops | INTEGER | Realtime No. Cancelled Stops | number of stops in this trip which are cancelled |
+| realtime_num_added_stops | INTEGER | Realtime No. Added Stops | number of stops in this trip which are added |
 
 ### Installation
 There're different options to use ticktrack. You can use it by cloning this repository and install it into your virtual environment directly:
